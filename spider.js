@@ -1,10 +1,13 @@
-// Visual crawler prototype — everything is painted on a transparent overlay.
-// The underlying page DOM is never modified.
+// Visual DOM crawler — overlay paint + single-page crawling engine.
+// The underlying page DOM is never modified (nodes keyed by element object).
 (() => {
   const canvas = document.getElementById("crawler-overlay");
   const ctx = canvas.getContext("2d");
   const hudText = document.getElementById("hud-text");
   const hudDot = document.getElementById("hud-dot");
+  const statDiscovered = document.getElementById("stat-discovered");
+  const statVisited = document.getElementById("stat-visited");
+  const statLinks = document.getElementById("stat-links");
 
   let W = 0;
   let H = 0;
@@ -23,7 +26,7 @@
   window.addEventListener("resize", resize);
   resize();
 
-  // --- input: mouse cursor is the attract point ---
+  // --- input: mouse cursor is an optional influence, not the only driver ---
   const mouse = { x: W * 0.6, y: H * 0.4, active: false, lastMove: 0 };
   window.addEventListener("mousemove", (e) => {
     mouse.x = e.clientX;
@@ -36,7 +39,7 @@
     if (t) { mouse.x = t.clientX; mouse.y = t.clientY; mouse.active = true; mouse.lastMove = performance.now(); }
   }, { passive: true });
 
-  // --- spider state ---
+  // --- spider state (movement + rendering unchanged) ---
   const spider = {
     x: W * 0.3, y: H * 0.3,
     vx: 0, vy: 0,
@@ -46,45 +49,131 @@
   };
 
   const SNIFF_RADIUS = 220;   // detection range (px)
-  const LATCH_RADIUS = 140;   // latch-on range (px)
+  const LATCH_RADIUS = 140;   // latch-on / visit range (px)
   const MAX_SPEED = 420;      // px/sec
   const ACCEL = 900;
+  const CURSOR_PULL = 0.35;   // how strongly a recent cursor pulls the spider off its tour
 
-  // Cache candidate element rects so we don't query layout every frame.
-  let targets = [];
-  function snapshotTargets() {
-    const els = document.querySelectorAll("a, button, h1, h2, h3, p, img");
-    const out = [];
+  // --- crawling engine: node graph for the current page ---
+  // Keyed by element object itself: re-scans can never create duplicates,
+  // and the page DOM is never touched (no ids, no data attributes).
+  const nodeByEl = new Map();
+  const nodes = [];
+  const edges = []; // persistent web: { a: node, b: node }
+  let nodeSeq = 0;
+  let lastVisitedNode = null;
+
+  function elementText(el) {
+    const t = (el.innerText || el.alt || el.value || el.title || "").trim().replace(/\s+/g, " ");
+    return t.slice(0, 80);
+  }
+
+  function elementUrl(el) {
+    return el.getAttribute("href") || el.getAttribute("src") || null;
+  }
+
+  function classify(tag) {
+    if (tag === "a") return "link <a>";
+    if (tag === "button") return "button";
+    if (tag.charAt(0) === "h") return "heading <" + tag + ">";
+    if (tag === "p") return "para <p>";
+    if (tag === "img") return "image <img>";
+    if (tag === "video") return "video";
+    if (tag === "iframe") return "frame <iframe>";
+    return "ref <" + tag + ">";
+  }
+
+  function readRect(n) {
+    const r = n.el.getBoundingClientRect();
+    n.x = r.left; n.y = r.top; n.w = r.width; n.h = r.height;
+    n.cx = r.left + r.width / 2; n.cy = r.top + r.height / 2;
+    return r;
+  }
+
+  function scanDOM() {
+    const els = (document.body || document).querySelectorAll(
+      "a, button, h1, h2, h3, h4, p, img, video, iframe, [href], [src]"
+    );
+    const seen = new Set();
     for (const el of els) {
-      if (el.closest("#hud")) continue;
+      if (el.closest("#hud") || el.closest("#stats")) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 4 || r.height < 4) continue;
       if (r.bottom < -50 || r.top > H + 50 || r.right < -50 || r.left > W + 50) continue;
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      let kind = "el";
-      const tag = el.tagName.toLowerCase();
-      if (tag === "a") kind = "link <a>";
-      else if (tag === "button") kind = "button";
-      else if (tag.startsWith("h")) kind = "heading <" + tag + ">";
-      else if (tag === "p") kind = "para <p>";
-      else if (tag === "img") kind = "image <img>";
-      out.push({ el, x: r.left, y: r.top, w: r.width, h: r.height, cx, cy, kind, tag });
+      seen.add(el);
+      let n = nodeByEl.get(el);
+      if (!n) {
+        const tag = el.tagName.toLowerCase();
+        n = {
+          id: ++nodeSeq,
+          el, tag,
+          kind: classify(tag),
+          text: elementText(el),
+          url: elementUrl(el),
+          x: r.left, y: r.top, w: r.width, h: r.height,
+          cx: r.left + r.width / 2, cy: r.top + r.height / 2,
+          visited: false,
+        };
+        nodeByEl.set(el, n);
+        nodes.push(n);
+      } else {
+        readRect(n);
+      }
     }
-    targets = out;
+    // prune detached nodes and their web edges
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      if (!seen.has(n.el) || !n.el.isConnected) {
+        nodeByEl.delete(n.el);
+        nodes.splice(i, 1);
+        if (lastVisitedNode === n) lastVisitedNode = null;
+        if (latched === n) latched = null;
+      }
+    }
+    for (let i = edges.length - 1; i >= 0; i--) {
+      if (!nodeByEl.has(edges[i].a.el) || !nodeByEl.has(edges[i].b.el)) edges.splice(i, 1);
+    }
   }
-  snapshotTargets();
-  setInterval(snapshotTargets, 600);
-  window.addEventListener("scroll", () => snapshotTargets(), { passive: true });
+  scanDOM();
+  setInterval(() => { scanDOM(); updateStats(); }, 600);
+  window.addEventListener("scroll", () => scanDOM(), { passive: true });
 
   let latched = null;      // currently highlighted target
   let latchUntil = 0;
+
+  function visit(node, now) {
+    if (node.visited) return;
+    node.visited = true;
+    if (lastVisitedNode && lastVisitedNode !== node) edges.push({ a: lastVisitedNode, b: node });
+    lastVisitedNode = node;
+    updateStats();
+  }
+
+  const lastStats = { d: -1, v: -1, l: -1 };
+  function updateStats() {
+    const d = nodes.length;
+    let v = 0, l = 0;
+    for (const n of nodes) {
+      if (n.visited) v++;
+      if (n.url) l++;
+    }
+    if (d !== lastStats.d && statDiscovered) { statDiscovered.textContent = d; lastStats.d = d; }
+    if (v !== lastStats.v && statVisited) { statVisited.textContent = v; lastStats.v = v; }
+    if (l !== lastStats.l && statLinks) { statLinks.textContent = l; lastStats.l = l; }
+  }
+  updateStats();
 
   function closestPointOnRect(px, py, t) {
     return {
       x: Math.max(t.x, Math.min(px, t.x + t.w)),
       y: Math.max(t.y, Math.min(py, t.y + t.h)),
     };
+  }
+
+  function nodeDistanceToSpider(n) {
+    const px = Math.max(n.x, Math.min(spider.x, n.x + n.w));
+    const py = Math.max(n.y, Math.min(spider.y, n.y + n.h));
+    return Math.hypot(spider.x - px, spider.y - py);
   }
 
   function roundRectPath(x, y, w, h, r) {
@@ -146,6 +235,30 @@
     ctx.moveTo(x1, y1);
     ctx.quadraticCurveTo(mx, my, x2, y2);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // persistent web between visited nodes (cheap flat strokes, no glow)
+  function drawWeb() {
+    ctx.save();
+    ctx.strokeStyle = "rgba(88,255,155,0.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const e of edges) {
+      ctx.moveTo(e.a.cx, e.a.cy);
+      ctx.lineTo(e.b.cx, e.b.cy);
+    }
+    ctx.stroke();
+    // dots for discovered-but-unvisited nodes
+    ctx.fillStyle = "rgba(124,196,255,0.35)";
+    ctx.beginPath();
+    for (const n of nodes) {
+      if (!n.visited && n.cx > -20 && n.cx < W + 20 && n.cy > -20 && n.cy < H + 20) {
+        ctx.moveTo(n.cx + 2, n.cy);
+        ctx.arc(n.cx, n.cy, 2, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
     ctx.restore();
   }
 
@@ -272,19 +385,49 @@
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
-    // pick steering goal: mouse cursor, plus organic wander
-    const idle = now - mouse.lastMove > 2500 || !mouse.active;
+    // tour: nearest unvisited node is the crawl target
+    let autoTarget = null;
+    let best = Infinity;
+    for (const n of nodes) {
+      if (n.visited) continue;
+      const d = nodeDistanceToSpider(n);
+      if (d < best) { best = d; autoTarget = n; }
+    }
+    // all visited? patrol the nearest node so the web stays alive
+    if (!autoTarget && nodes.length) {
+      for (const n of nodes) {
+        const d = nodeDistanceToSpider(n);
+        if (d < best) { best = d; autoTarget = n; }
+      }
+    }
+
+    // steering goal: crawl target, with wander + optional cursor pull
+    const cursorFresh = mouse.active && (now - mouse.lastMove < 2500);
     const wt = now / 1000;
     const wanderX = Math.sin(wt * 0.9) * 60 + Math.sin(wt * 2.3) * 20;
     const wanderY = Math.cos(wt * 1.1) * 60 + Math.cos(wt * 1.7) * 20;
-    const gx = (idle ? W / 2 + Math.sin(wt * 0.4) * W * 0.25 : mouse.x) + wanderX * 0.25;
-    const gy = (idle ? H / 2 + Math.cos(wt * 0.5) * H * 0.25 : mouse.y) + wanderY * 0.25;
+    let gx, gy;
+    if (latched) {
+      const a = closestPointOnRect(spider.x, spider.y, latched);
+      gx = a.x; gy = a.y;
+    } else if (autoTarget) {
+      const a = closestPointOnRect(spider.x, spider.y, autoTarget);
+      gx = a.x + wanderX * 0.25;
+      gy = a.y + wanderY * 0.25;
+    } else {
+      gx = (cursorFresh ? mouse.x : W / 2 + Math.sin(wt * 0.4) * W * 0.25) + wanderX * 0.25;
+      gy = (cursorFresh ? mouse.y : H / 2 + Math.cos(wt * 0.5) * H * 0.25) + wanderY * 0.25;
+    }
+    if (cursorFresh && (autoTarget || latched)) {
+      gx = gx * (1 - CURSOR_PULL) + mouse.x * CURSOR_PULL;
+      gy = gy * (1 - CURSOR_PULL) + mouse.y * CURSOR_PULL;
+    }
 
     const dx = gx - spider.x;
     const dy = gy - spider.y;
     const dist = Math.hypot(dx, dy);
 
-    // ease: arrive slowly when close so it doesn't jitter on the cursor
+    // ease: arrive slowly when close so it doesn't jitter on the target
     const desired = Math.min(MAX_SPEED, dist * 4);
     const ax = dist > 1 ? (dx / dist) * ACCEL : 0;
     const ay = dist > 1 ? (dy / dist) * ACCEL : 0;
@@ -318,32 +461,34 @@
     if (spider.trail.length > 40) spider.trail.shift();
     for (const p of spider.trail) p.life -= dt * 1.4;
 
-    // --- detection: nearest targets within sniff radius ---
+    // --- detection: nearest nodes within sniff radius ---
     let nearest = [];
-    for (const t of targets) {
-      const px = Math.max(t.x, Math.min(spider.x, t.x + t.w));
-      const py = Math.max(t.y, Math.min(spider.y, t.y + t.h));
+    for (const n of nodes) {
+      const px = Math.max(n.x, Math.min(spider.x, n.x + n.w));
+      const py = Math.max(n.y, Math.min(spider.y, n.y + n.h));
       const d = Math.hypot(spider.x - px, spider.y - py);
-      if (d < SNIFF_RADIUS) nearest.push({ t, d });
+      if (d < SNIFF_RADIUS) nearest.push({ t: n, d });
     }
     nearest.sort((a, b) => a.d - b.d);
 
     if (latched && now > latchUntil) latched = null;
-    // latch onto closest once spider is on top of it
+    // latch onto closest once spider is on top of it => node visited
     if (!latched && nearest.length && nearest[0].d < LATCH_RADIUS) {
       latched = nearest[0].t;
       latchUntil = now + 1800;
-      snapshotTargets();
+      visit(latched, now);
+      scanDOM();
     }
     // keep latch rect fresh while page scrolls
     if (latched) {
-      const r = latched.el.getBoundingClientRect();
-      latched.x = r.left; latched.y = r.top; latched.w = r.width; latched.h = r.height;
-      latched.cx = r.left + r.width / 2; latched.cy = r.top + r.height / 2;
+      readRect(latched);
     }
 
     // --- paint ---
     ctx.clearRect(0, 0, W, H);
+
+    // persistent crawled web first (under everything else)
+    drawWeb();
 
     // faint sniff ring
     ctx.save();
