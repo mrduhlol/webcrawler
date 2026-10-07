@@ -2,17 +2,25 @@
 // The underlying page DOM is never modified (nodes keyed by element object).
 // Build with `npm run build` (emits ../spider.js). Do not edit spider.js by hand.
 (() => {
+  // Non-nullable bindings: narrowing from guards does not cross into the
+  // draw/loop functions below, so assert once here with explicit types.
+  function reqEl(id: string): HTMLElement {
+    const el = document.getElementById(id);
+    if (!el) throw new Error("missing #" + id);
+    return el;
+  }
   const canvasEl = document.getElementById("crawler-overlay");
   if (!(canvasEl instanceof HTMLCanvasElement)) throw new Error("missing #crawler-overlay");
-  const ctx = canvasEl.getContext("2d");
-  if (!ctx) throw new Error("no 2d context");
+  const canvas: HTMLCanvasElement = canvasEl;
+  const rawCtx = canvas.getContext("2d");
+  if (!rawCtx) throw new Error("no 2d context");
+  const ctx: CanvasRenderingContext2D = rawCtx;
 
-  const hudText = document.getElementById("hud-text");
-  const hudDot = document.getElementById("hud-dot");
-  if (!hudText || !hudDot) throw new Error("missing hud elements");
-  const statDiscovered = document.getElementById("stat-discovered");
-  const statVisited = document.getElementById("stat-visited");
-  const statLinks = document.getElementById("stat-links");
+  const hudText: HTMLElement = reqEl("hud-text");
+  const hudDot: HTMLElement = reqEl("hud-dot");
+  const statDiscovered: HTMLElement | null = document.getElementById("stat-discovered");
+  const statVisited: HTMLElement | null = document.getElementById("stat-visited");
+  const statLinks: HTMLElement | null = document.getElementById("stat-links");
 
   let W = 0;
   let H = 0;
@@ -22,10 +30,10 @@
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth;
     H = window.innerHeight;
-    canvasEl.width = Math.floor(W * DPR);
-    canvasEl.height = Math.floor(H * DPR);
-    canvasEl.style.width = W + "px";
-    canvasEl.style.height = H + "px";
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
   window.addEventListener("resize", resize);
