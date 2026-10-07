@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visual Web Crawler Prototype</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="page">
+    <nav class="nav">
+      <span class="logo">🕷️ CrawlerLab</span>
+      <div class="nav-links">
+        <a href="#home">Home</a>
+        <a href="#docs">Docs</a>
+        <a href="#about">About</a>
+      </div>
+      <button type="button">Get Started</button>
+    </nav>
+
+    <header id="home" class="hero">
+      <h1>Visual Web Crawler Prototype</h1>
+      <p>
+        Move your mouse around. A small spider lives on the overlay canvas above
+        this page and will chase your cursor, sniff nearby elements, and draw
+        glowing threads to whatever it touches. The page underneath is never modified.
+      </p>
+      <div class="hero-actions">
+        <a href="#docs">Read the docs →</a>
+        <button type="button">Watch demo</button>
+      </div>
+    </header>
+
+    <section id="docs" class="grid">
+      <article class="card">
+        <h2>How it follows you</h2>
+        <p>
+          The spider steers toward your cursor with easing and a little wander
+          wobble, so it feels alive instead of robotic. Stop moving and it will
+          start inspecting whatever is closest.
+        </p>
+        <a href="#about">Learn more</a>
+      </article>
+      <article class="card">
+        <h2>What it detects</h2>
+        <p>
+          Links, headings, paragraphs, buttons, and images within a sniff radius
+          get a glowing outline plus a thread line from the spider. Labels float
+          above them showing the element type.
+        </p>
+        <a href="#about">See detections</a>
+      </article>
+      <article class="card">
+        <h3>Try hovering here</h3>
+        <p>
+          Park your cursor on this paragraph and watch the spider crawl over,
+          latch on, and light it up with a silk thread.
+        </p>
+        <a href="#home">Back to top ↑</a>
+      </article>
+    </section>
+
+    <section id="about" class="about">
+      <h2>Overlay rules</h2>
+      <p>
+        Everything visual lives on a single transparent, click-through canvas
+        fixed over the page. No DOM nodes are changed, no layout shifts — just
+        paint on top. Open <code>spider.js</code> to tune speed, sniff radius,
+        and leg wiggle.
+      </p>
+      <img src="https://picsum.photos/seed/spider/640/220" alt="Sample image target" />
+    </section>
+
+    <footer>
+      <p>Prototype v0.1 — visual crawl only. No multi-page crawl, DB, auth, or AI.</p>
+      <a href="#home">Back to top</a>
+    </footer>
+  </main>
+
+  <!-- Transparent overlay: all spider + highlight paint happens here -->
+  <canvas id="crawler-overlay"></canvas>
+
+  <div id="hud">
+    <span id="hud-dot"></span>
+    <span id="hud-text">spider idle — move your mouse</span>
+  </div>
+
+  <script src="spider.js"></script>
+</body>
+</html>
