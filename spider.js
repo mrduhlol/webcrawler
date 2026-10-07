@@ -62,6 +62,7 @@
   const edges = []; // persistent web: { a: node, b: node }
   let nodeSeq = 0;
   let lastVisitedNode = null;
+  let unvisitedCount = 0;
 
   function elementText(el) {
     const t = (el.innerText || el.alt || el.value || el.title || "").trim().replace(/\s+/g, " ");
@@ -113,9 +114,11 @@
           x: r.left, y: r.top, w: r.width, h: r.height,
           cx: r.left + r.width / 2, cy: r.top + r.height / 2,
           visited: false,
+          cooldownUntil: 0,
         };
         nodeByEl.set(el, n);
         nodes.push(n);
+        unvisitedCount++;
       } else {
         readRect(n);
       }
@@ -124,6 +127,7 @@
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i];
       if (!seen.has(n.el) || !n.el.isConnected) {
+        if (!n.visited) unvisitedCount--;
         nodeByEl.delete(n.el);
         nodes.splice(i, 1);
         if (lastVisitedNode === n) lastVisitedNode = null;
@@ -144,6 +148,7 @@
   function visit(node, now) {
     if (node.visited) return;
     node.visited = true;
+    unvisitedCount--;
     if (lastVisitedNode && lastVisitedNode !== node) edges.push({ a: lastVisitedNode, b: node });
     lastVisitedNode = node;
     updateStats();
@@ -385,17 +390,20 @@
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
-    // tour: nearest unvisited node is the crawl target
+    // tour: nearest unvisited node is the crawl target.
+    // Once everything is visited, patrol the nearest node whose cooldown
+    // expired, so the spider roams instead of camping one spot.
     let autoTarget = null;
     let best = Infinity;
-    for (const n of nodes) {
-      if (n.visited) continue;
-      const d = nodeDistanceToSpider(n);
-      if (d < best) { best = d; autoTarget = n; }
-    }
-    // all visited? patrol the nearest node so the web stays alive
-    if (!autoTarget && nodes.length) {
+    if (unvisitedCount > 0) {
       for (const n of nodes) {
+        if (n.visited) continue;
+        const d = nodeDistanceToSpider(n);
+        if (d < best) { best = d; autoTarget = n; }
+      }
+    } else {
+      for (const n of nodes) {
+        if (now < (n.cooldownUntil || 0)) continue;
         const d = nodeDistanceToSpider(n);
         if (d < best) { best = d; autoTarget = n; }
       }
@@ -472,12 +480,21 @@
     nearest.sort((a, b) => a.d - b.d);
 
     if (latched && now > latchUntil) latched = null;
-    // latch onto closest once spider is on top of it => node visited
+    // latch onto closest once spider is on top of it => node visited.
+    // Skip already-visited nodes while the tour still has fresh targets,
+    // otherwise the spider re-latches forever and never moves on.
+    // In patrol mode each node cools down after a latch so the tour rotates.
     if (!latched && nearest.length && nearest[0].d < LATCH_RADIUS) {
-      latched = nearest[0].t;
-      latchUntil = now + 1800;
-      visit(latched, now);
-      scanDOM();
+      const pick = nearest.find((n) =>
+        (!n.t.visited || (unvisitedCount === 0 && now >= (n.t.cooldownUntil || 0))) &&
+        n.d < LATCH_RADIUS);
+      if (pick) {
+        latched = pick.t;
+        latchUntil = now + 1800;
+        if (unvisitedCount === 0) latched.cooldownUntil = now + 6000;
+        visit(latched, now);
+        scanDOM();
+      }
     }
     // keep latch rect fresh while page scrolls
     if (latched) {
