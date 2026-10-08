@@ -1,15 +1,10 @@
 "use strict";
 // Visual DOM crawler — overlay paint + single-page crawling engine.
 // The underlying page DOM is never modified (nodes keyed by element object).
-// Build with `npm run build` (emits ../spider.js). Do not edit spider.js by hand.
+// Build with `npm run build` (emits dist/spider.js). Do not edit dist by hand.
 (() => {
-    // Non-nullable bindings: narrowing from guards does not cross into the
-    // draw/loop functions below, so assert once here with explicit types.
     function reqEl(id) {
-        const el = document.getElementById(id);
-        if (!el)
-            throw new Error("missing #" + id);
-        return el;
+        return document.getElementById(id);
     }
     const canvasEl = document.getElementById("crawler-overlay");
     if (!(canvasEl instanceof HTMLCanvasElement))
@@ -19,11 +14,12 @@
     if (!rawCtx)
         throw new Error("no 2d context");
     const ctx = rawCtx;
+    // HUD / stats pills are gone from the page; keep refs optional so the
+    // engine still runs headless in tests.
     const hudText = reqEl("hud-text");
-    const hudDot = reqEl("hud-dot");
-    const statDiscovered = document.getElementById("stat-discovered");
-    const statVisited = document.getElementById("stat-visited");
-    const statLinks = document.getElementById("stat-links");
+    const statDiscovered = reqEl("stat-discovered");
+    const statVisited = reqEl("stat-visited");
+    const statLinks = reqEl("stat-links");
     let W = 0;
     let H = 0;
     let DPR = 1;
@@ -39,7 +35,7 @@
     }
     window.addEventListener("resize", resize);
     resize();
-    // --- input: mouse cursor is an optional influence, not the only driver ---
+    // --- input: the cursor is a faint target the creature notices, nothing more ---
     const mouse = { x: W * 0.6, y: H * 0.4, active: false, lastMove: 0 };
     window.addEventListener("mousemove", (e) => {
         mouse.x = e.clientX;
@@ -56,24 +52,32 @@
             mouse.lastMove = performance.now();
         }
     }, { passive: true });
-    // --- spider state (movement + rendering unchanged) ---
+    // --- spider state ---
     const spider = {
         x: W * 0.3, y: H * 0.3,
         vx: 0, vy: 0,
         angle: 0,
         speed: 0,
+        bobPhase: Math.random() * 10,
     };
-    const SNIFF_RADIUS = 220; // detection range (px)
-    const LATCH_RADIUS = 140; // latch-on / visit range (px)
-    const MAX_SPEED = 420; // px/sec
-    const ACCEL = 900;
-    const CURSOR_PULL = 0.35; // how strongly a recent cursor pulls the spider off its tour
+    const SNIFF_RADIUS = 220; // detection range (px), invisible
+    const LATCH_RADIUS = 130; // inspect range (px)
+    const MAX_SPEED = 380; // px/sec, modulated into scurries below
+    const ACCEL = 1500; // darts, then brakes hard
+    const CURSOR_PULL = 0.18; // faint tug toward a recent cursor
+    // ink-on-paper palette: monochrome, almost no glow
+    const INK = "35,39,46";
+    const STRAND = `rgba(${INK},0.30)`;
+    const WEB = `rgba(${INK},0.16)`;
+    const BOX = `rgba(${INK},0.55)`;
+    const DOT = `rgba(${INK},0.30)`;
+    const LABEL_FG = "#2a2e36";
+    const LABEL_BG = "rgba(250,249,246,0.92)";
+    const LABEL_EDGE = `rgba(${INK},0.38)`;
     // --- crawling engine: node graph for the current page ---
-    // Keyed by element object itself: re-scans can never create duplicates,
-    // and the page DOM is never touched (no ids, no data attributes).
     const nodeByEl = new Map();
     const nodes = [];
-    const edges = []; // persistent web between visited nodes
+    const edges = []; // silk left behind between visited nodes
     let nodeSeq = 0;
     let lastVisitedNode = null;
     let unvisitedCount = 0;
@@ -105,6 +109,39 @@
             return "frame <iframe>";
         return "ref <" + tag + ">";
     }
+    // Technical annotations: DOI / ISBN surfaced when the element carries one.
+    function findDoi(haystack) {
+        const m = haystack.match(/10\.\d{4,}\/[^\s"'<>\]\)]+/);
+        if (!m)
+            return null;
+        return m[0].replace(/[.,;]+$/, "");
+    }
+    function findIsbn(haystack) {
+        const m = haystack.match(/\bISBN(?:-1[03])?[\s:]*([0-9][0-9\s-]{8,}[0-9xX])/i);
+        if (!m)
+            return null;
+        const digits = m[1].replace(/[\s-]/g, "");
+        if (digits.length !== 10 && digits.length !== 13)
+            return null;
+        return digits;
+    }
+    function shortRef(url) {
+        const s = url.replace(/^https?:\/\//, "").replace(/^www\./, "");
+        return s.length > 30 ? s.slice(0, 29) + "…" : s;
+    }
+    function nodeLabelLines(n, full) {
+        const head = n.tag + (n.url ? " · " + shortRef(n.url) : "");
+        if (!full)
+            return [head];
+        const hay = (n.url ? n.url + " " : "") + n.text;
+        const doi = findDoi(hay);
+        if (doi)
+            return [head, "doi:" + doi];
+        const isbn = findIsbn(hay);
+        if (isbn)
+            return [head, "isbn:" + isbn];
+        return [head];
+    }
     function readRect(n) {
         const r = n.el.getBoundingClientRect();
         n.x = r.left;
@@ -119,8 +156,6 @@
         const els = scope.querySelectorAll("a, button, h1, h2, h3, h4, p, img, video, iframe, [href], [src]");
         const seen = new Set();
         els.forEach((el) => {
-            if (el.closest("#hud") || el.closest("#stats"))
-                return;
             const r = el.getBoundingClientRect();
             if (r.width < 4 || r.height < 4)
                 return;
@@ -149,7 +184,6 @@
                 readRect(existing);
             }
         });
-        // prune detached nodes and their web edges
         for (let i = nodes.length - 1; i >= 0; i--) {
             const n = nodes[i];
             if (!seen.has(n.el) || !n.el.isConnected) {
@@ -168,7 +202,7 @@
                 edges.splice(i, 1);
         }
     }
-    let latched = null; // currently highlighted target
+    let latched = null; // element under inspection
     let latchUntil = 0;
     function visit(node) {
         if (node.visited)
@@ -218,59 +252,81 @@
         const py = Math.max(n.y, Math.min(spider.y, n.y + n.h));
         return Math.hypot(spider.x - px, spider.y - py);
     }
-    function roundRectPath(x, y, w, h, r) {
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r);
-        ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r);
-        ctx.arcTo(x, y, x + w, y, r);
-        ctx.closePath();
-    }
-    function drawLabel(x, y, text, accent) {
-        ctx.font = "11px ui-monospace, monospace";
-        const w = ctx.measureText(text).width + 16;
-        const h = 20;
-        const lx = Math.max(6, Math.min(x - w / 2, W - w - 6));
-        let ly = y - 34;
-        if (ly < 6)
-            ly = y + 14;
-        // bob gently
-        ly += Math.sin(performance.now() / 500 + x) * 2;
+    // --- generative layer: hairlines, chips, the creature ---
+    function strokeBox(n, corners) {
+        const pad = 2;
+        const x = n.x - pad, y = n.y - pad, w = n.w + pad * 2, h = n.h + pad * 2;
         ctx.save();
-        ctx.shadowColor = accent;
-        ctx.shadowBlur = 10;
-        ctx.fillStyle = "rgba(8,12,20,0.88)";
-        roundRectPath(lx, ly, w, h, 9);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = accent;
-        ctx.globalAlpha = 0.8;
+        ctx.strokeStyle = BOX;
         ctx.lineWidth = 1;
-        roundRectPath(lx, ly, w, h, 9);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#eaf2ff";
-        ctx.fillText(text, lx + 8, ly + 13.5);
+        if (!corners) {
+            ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+        }
+        else {
+            // small corner ticks instead of a full frame
+            const c = Math.min(7, w / 3, h / 3);
+            ctx.beginPath();
+            ctx.moveTo(x, y + c);
+            ctx.lineTo(x, y);
+            ctx.lineTo(x + c, y);
+            ctx.moveTo(x + w - c, y);
+            ctx.lineTo(x + w, y);
+            ctx.lineTo(x + w, y + c);
+            ctx.moveTo(x + w, y + h - c);
+            ctx.lineTo(x + w, y + h);
+            ctx.lineTo(x + w - c, y + h);
+            ctx.moveTo(x + c, y + h);
+            ctx.lineTo(x, y + h);
+            ctx.lineTo(x, y + h - c);
+            ctx.stroke();
+        }
         ctx.restore();
     }
-    function drawThread(x1, y1, x2, y2, color) {
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2 + 12; // slight silk sag
+    function drawLabel(ax, ay, lines) {
+        ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+        let w = 0;
+        for (const ln of lines)
+            w = Math.max(w, ctx.measureText(ln).width);
+        w += 10;
+        const h = lines.length * 11 + 7;
+        let lx = Math.max(4, Math.min(ax - w / 2, W - w - 4));
+        let ly = ay - h - 8;
+        let stemFromTop = false;
+        if (ly < 4) {
+            ly = ay + 8;
+            stemFromTop = true;
+        }
         ctx.save();
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 12;
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 1.4;
+        ctx.fillStyle = LABEL_BG;
+        ctx.strokeStyle = LABEL_EDGE;
+        ctx.lineWidth = 0.75;
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.quadraticCurveTo(mx, my, x2, y2);
+        ctx.rect(lx + 0.5, ly + 0.5, w, h);
+        ctx.fill();
         ctx.stroke();
-        // bright core so it reads as glowing filament
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        // hairline stem tying the note to its element
+        ctx.strokeStyle = LABEL_EDGE;
+        ctx.beginPath();
+        if (stemFromTop) {
+            ctx.moveTo(ax, ly);
+            ctx.lineTo(ax, ay);
+        }
+        else {
+            ctx.moveTo(ax, ly + h);
+            ctx.lineTo(ax, ay);
+        }
+        ctx.stroke();
+        ctx.fillStyle = LABEL_FG;
+        lines.forEach((ln, i) => ctx.fillText(ln, lx + 5, ly + 12 + i * 11));
+        ctx.restore();
+    }
+    // a silk filament from the spinnerets to an anchor point, near-invisible
+    function drawStrand(x1, y1, x2, y2, alpha) {
+        const mx = (x1 + x2) / 2;
+        const my = (y1 + y2) / 2 + 6;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = STRAND;
         ctx.lineWidth = 0.6;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
@@ -278,153 +334,150 @@
         ctx.stroke();
         ctx.restore();
     }
-    // persistent web between visited nodes (cheap flat strokes, no glow)
+    // silk left behind: the web the creature has already spun
     function drawWeb() {
+        if (edges.length === 0)
+            return;
         ctx.save();
-        ctx.strokeStyle = "rgba(88,255,155,0.22)";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = WEB;
+        ctx.lineWidth = 0.7;
         ctx.beginPath();
         for (const e of edges) {
             ctx.moveTo(e.a.cx, e.a.cy);
             ctx.lineTo(e.b.cx, e.b.cy);
         }
         ctx.stroke();
-        // dots for discovered-but-unvisited nodes
-        ctx.fillStyle = "rgba(124,196,255,0.35)";
-        ctx.beginPath();
-        for (const n of nodes) {
-            if (!n.visited && n.cx > -20 && n.cx < W + 20 && n.cy > -20 && n.cy < H + 20) {
-                ctx.moveTo(n.cx + 2, n.cy);
-                ctx.arc(n.cx, n.cy, 2, 0, Math.PI * 2);
-            }
-        }
-        ctx.fill();
         ctx.restore();
     }
-    function drawHighlight(t, color) {
-        const pad = 6;
+    function drawCursorReticle(now) {
+        if (!mouse.active || now - mouse.lastMove > 3000)
+            return;
         ctx.save();
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 16;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.6;
-        ctx.globalAlpha = 0.95;
-        roundRectPath(t.x - pad, t.y - pad, t.w + pad * 2, t.h + pad * 2, 10);
+        ctx.globalAlpha = 0.28;
+        ctx.strokeStyle = `rgba(${INK},1)`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 7, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.restore();
-    }
-    function drawSpider(time, moving) {
-        const { x, y, angle } = spider;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        // soft glow under spider
-        ctx.save();
-        ctx.shadowColor = "rgba(124,196,255,0.9)";
-        ctx.shadowBlur = 18;
-        ctx.fillStyle = "rgba(124,196,255,0.12)";
+        ctx.setLineDash([]);
+        ctx.fillStyle = `rgba(${INK},1)`;
         ctx.beginPath();
-        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.arc(mouse.x, mouse.y, 1, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        // --- 8 legs, animated with alternating tripod gait ---
-        const stepFreq = 6 + spider.speed / 45; // faster wiggle when moving
-        const amp = moving ? 6 : 2.5;
+    }
+    function legPose(side, i, time, moving, inspecting, out) {
+        // alternating gait; probing taps when inspecting
+        const phase = (i % 2 === 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.9 : 0) + i * 0.55;
+        const freq = inspecting ? 2.6 : 9 + spider.speed / 40;
+        const t = time * freq + phase;
+        const stride = moving ? 2.6 + Math.min(2.4, spider.speed / 160) : 0;
+        const lift = inspecting ? Math.max(0, Math.sin(t)) * 1.1 : Math.max(0, Math.sin(t)) * (1.2 + stride * 0.5);
+        const swing = Math.cos(t) * stride;
+        const rootX = 3.5 - i * 2.6;
+        const rootY = side * 2.6;
+        const spread = 5.5 + (i === 1 || i === 2 ? 1.6 : 0);
+        out.kx = rootX + 1.5 + swing * 0.5;
+        out.ky = side * (spread * 0.55) + lift * 0.3;
+        out.fx = rootX - 1 + swing + (inspecting && i < 2 ? 1.5 : 0);
+        out.fy = side * spread + lift;
+    }
+    function drawSpider(time, moving, inspecting) {
+        spider.bobPhase += 0.016 * (inspecting ? 2.4 : 1.2);
+        const bob = Math.sin(spider.bobPhase * 2.1) * (inspecting ? 0.5 : 0.3);
+        const pitch = Math.sin(time * 0.004 + 1) * 0.035;
+        ctx.save();
+        ctx.translate(spider.x, spider.y + bob * 0.4);
+        ctx.rotate(spider.angle + pitch);
+        ctx.strokeStyle = `rgb(${INK})`;
+        ctx.fillStyle = `rgb(${INK})`;
+        ctx.lineWidth = 0.9;
         ctx.lineCap = "round";
-        for (let side = -1; side <= 1; side += 2) {
+        // legs first (behind the body), three segments each
+        const pose = { kx: 0, ky: 0, fx: 0, fy: 0 };
+        for (const side of [-1, 1]) {
             for (let i = 0; i < 4; i++) {
-                const phase = (i % 2 === 0 ? 0 : Math.PI) + (side > 0 ? Math.PI : 0);
-                const t = time / 1000 * stepFreq + phase + i * 0.7;
-                const lift = Math.sin(t) * amp;
-                const swing = Math.cos(t * 0.9) * (moving ? 5 : 1.5);
-                // leg roots along the body flanks, fans front-to-back
-                const rootX = 8 - i * 6;
-                const rootY = side * 6;
-                const kneeX = rootX + 6 + swing * 0.4;
-                const kneeY = side * (16 + (i === 1 || i === 2 ? 4 : 0)) + lift * 0.4;
-                const footX = kneeX - 2 + swing;
-                const footY = side * (30 + (i === 0 || i === 3 ? -4 : 2)) + lift;
-                ctx.save();
-                ctx.shadowColor = "rgba(124,196,255,0.8)";
-                ctx.shadowBlur = 6;
-                ctx.strokeStyle = "#9fd0ff";
-                ctx.lineWidth = 1.8;
+                legPose(side, i, time / 1000, moving, inspecting, pose);
+                const rootX = 3.5 - i * 2.6;
+                const rootY = side * 2.6;
+                ctx.globalAlpha = 0.88;
                 ctx.beginPath();
                 ctx.moveTo(rootX, rootY);
-                ctx.lineTo(kneeX, kneeY);
-                ctx.lineTo(footX, footY);
+                ctx.lineTo(pose.kx, pose.ky);
+                ctx.lineTo(pose.fx, pose.fy);
                 ctx.stroke();
-                ctx.restore();
-                // tiny foot dot
-                ctx.fillStyle = "rgba(200,230,255,0.9)";
-                ctx.beginPath();
-                ctx.arc(footX, footY, 1.4, 0, Math.PI * 2);
-                ctx.fill();
             }
         }
-        // --- body: abdomen + cephalothorax ---
-        ctx.save();
-        ctx.shadowColor = "rgba(0,0,0,0.6)";
-        ctx.shadowBlur = 8;
-        // abdomen (rear)
-        const grad = ctx.createRadialGradient(-6, 0, 1, -8, 0, 14);
-        grad.addColorStop(0, "#3a4358");
-        grad.addColorStop(1, "#141926");
-        ctx.fillStyle = grad;
+        ctx.globalAlpha = 1;
+        // abdomen with segments
         ctx.beginPath();
-        ctx.ellipse(-9, 0, 11, 8, 0, 0, Math.PI * 2);
+        ctx.ellipse(-4.5, bob * 0.3, 5.2, 3.7, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#7cc4ff";
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-        // abdomen stripe
-        ctx.strokeStyle = "rgba(124,196,255,0.5)";
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = LABEL_BG;
+        ctx.lineWidth = 0.6;
+        for (let s = 0; s < 3; s++) {
+            ctx.beginPath();
+            ctx.ellipse(-6 + s * 2.1, bob * 0.3, 1.1, 3.1, 0.25, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+        // pedicel + cephalothorax
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(-17, 0);
-        ctx.lineTo(-4, 0);
+        ctx.moveTo(-0.5, 0);
+        ctx.lineTo(1.2, 0);
         ctx.stroke();
-        // head
-        ctx.fillStyle = "#1d2536";
         ctx.beginPath();
-        ctx.ellipse(6, 0, 7, 5.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(3.4, 0, 3.1, 2.5, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#bfe0ff";
+        // pedipalps
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(5.6, -1.4);
+        ctx.lineTo(7.4, -2.4);
+        ctx.moveTo(5.6, 1.4);
+        ctx.lineTo(7.4, 2.4);
         ctx.stroke();
-        ctx.restore();
-        // eyes (front)
-        ctx.fillStyle = "#ff5d5d";
+        // spinnerets at the rear (where silk comes from)
+        ctx.lineWidth = 0.7;
         ctx.beginPath();
-        ctx.arc(10.5, -2, 1.4, 0, Math.PI * 2);
+        ctx.moveTo(-9.2, -1);
+        ctx.lineTo(-10.4, -1.8);
+        ctx.moveTo(-9.2, 1);
+        ctx.lineTo(-10.4, 1.8);
+        ctx.stroke();
+        // eyes: two plain dots, no glow
+        ctx.fillStyle = LABEL_BG;
+        ctx.beginPath();
+        ctx.arc(5.2, -0.9, 0.55, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(10.5, 2, 1.4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(10.8, -2, 0.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(10.8, 2, 0.5, 0, Math.PI * 2);
+        ctx.arc(5.2, 0.9, 0.55, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
+    // spinneret tip in world space: silk originates here, not at the center
+    function spinneretTip() {
+        const c = Math.cos(spider.angle), s = Math.sin(spider.angle);
+        return { x: spider.x + c * -10.4, y: spider.y + s * -10.4 };
+    }
     function setHud(mode, detail) {
+        if (!hudText)
+            return;
         const text = mode === "latch" ? `crawling ${detail ?? ""}` :
             mode === "chase" ? "following cursor…" : "spider idle — move your mouse";
         if (hudText.textContent !== text)
             hudText.textContent = text;
-        hudDot.style.background = mode === "latch" ? "#58ff9b" : mode === "chase" ? "#7cc4ff" : "#8d97ad";
-        hudDot.style.boxShadow = `0 0 8px ${hudDot.style.background}`;
     }
     // --- main loop ---
     let last = performance.now();
     function frame(now) {
         const dt = Math.min((now - last) / 1000, 0.05);
         last = now;
-        // tour: nearest unvisited node is the crawl target.
-        // Once everything is visited, patrol the nearest node whose cooldown
-        // expired, so the spider roams instead of camping one spot.
+        // tour: nearest unvisited node is the crawl target; patrol on cooldowns after
         let autoTarget = null;
         let best = Infinity;
         if (unvisitedCount > 0) {
@@ -449,7 +502,6 @@
                 }
             }
         }
-        // steering goal: crawl target, with wander + optional cursor pull
         const cursorFresh = mouse.active && (now - mouse.lastMove < 2500);
         const wt = now / 1000;
         const wanderX = Math.sin(wt * 0.9) * 60 + Math.sin(wt * 2.3) * 20;
@@ -476,33 +528,48 @@
         const dx = gx - spider.x;
         const dy = gy - spider.y;
         const dist = Math.hypot(dx, dy);
-        // ease: arrive slowly when close so it doesn't jitter on the target
-        const desired = Math.min(MAX_SPEED, dist * 4);
+        // scurry: speed breathes so travel reads as darts and drifts, not a cruise
+        const scurry = Math.max(0.3, 0.62 + 0.28 * Math.sin(wt * 0.63) + 0.18 * Math.sin(wt * 1.71 + 2));
+        const desired = Math.min(MAX_SPEED * scurry, dist * 4);
         const ax = dist > 1 ? (dx / dist) * ACCEL : 0;
         const ay = dist > 1 ? (dy / dist) * ACCEL : 0;
         spider.vx += ax * dt;
         spider.vy += ay * dt;
-        // friction + speed clamp
-        spider.vx *= (1 - Math.min(1, 3.2 * dt));
-        spider.vy *= (1 - Math.min(1, 3.2 * dt));
-        const sp = Math.hypot(spider.vx, spider.vy);
-        if (sp > desired) {
-            spider.vx = spider.vx / sp * desired;
-            spider.vy = spider.vy / sp * desired;
+        // faint sideways skitter while travelling
+        if (!latched && dist > 4) {
+            const px = -dy / dist, py = dx / dist;
+            const sk = Math.sin(wt * 6.3 + 1.7) * 60 * dt;
+            spider.vx += px * sk;
+            spider.vy += py * sk;
+        }
+        if (latched) {
+            // inspecting: come to a full stop on the element
+            const damp = 1 - Math.min(1, 9 * dt);
+            spider.vx *= damp;
+            spider.vy *= damp;
+        }
+        else {
+            spider.vx *= (1 - Math.min(1, 4.2 * dt));
+            spider.vy *= (1 - Math.min(1, 4.2 * dt));
+            const sp = Math.hypot(spider.vx, spider.vy);
+            if (sp > desired) {
+                spider.vx = spider.vx / sp * desired;
+                spider.vy = spider.vy / sp * desired;
+            }
         }
         spider.x += spider.vx * dt;
         spider.y += spider.vy * dt;
-        spider.x = Math.max(10, Math.min(W - 10, spider.x));
-        spider.y = Math.max(10, Math.min(H - 10, spider.y));
+        spider.x = Math.max(6, Math.min(W - 6, spider.x));
+        spider.y = Math.max(6, Math.min(H - 6, spider.y));
         spider.speed = Math.hypot(spider.vx, spider.vy);
-        if (spider.speed > 12) {
+        if (spider.speed > 10) {
             const targetAngle = Math.atan2(spider.vy, spider.vx);
             let d = targetAngle - spider.angle;
             while (d > Math.PI)
                 d -= Math.PI * 2;
             while (d < -Math.PI)
                 d += Math.PI * 2;
-            spider.angle += d * Math.min(1, 10 * dt);
+            spider.angle += d * Math.min(1, 12 * dt);
         }
         // --- detection: nearest nodes within sniff radius ---
         const nearest = [];
@@ -516,57 +583,49 @@
         nearest.sort((a, b) => a.d - b.d);
         if (latched && now > latchUntil)
             latched = null;
-        // latch onto closest once spider is on top of it => node visited.
-        // Skip already-visited nodes while the tour still has fresh targets,
-        // otherwise the spider re-latches forever and never moves on.
-        // In patrol mode each node cools down after a latch so the tour rotates.
         if (!latched && nearest.length > 0 && nearest[0].d < LATCH_RADIUS) {
             const pick = nearest.find((n) => (!n.t.visited || (unvisitedCount === 0 && now >= n.t.cooldownUntil)) &&
                 n.d < LATCH_RADIUS);
             if (pick) {
                 latched = pick.t;
-                latchUntil = now + 1800;
+                latchUntil = now + 1800 + Math.random() * 900; // inspect a while
                 if (unvisitedCount === 0)
                     latched.cooldownUntil = now + 6000;
                 visit(latched);
                 scanDOM();
             }
         }
-        // keep latch rect fresh while page scrolls
         if (latched) {
             readRect(latched);
         }
-        // --- paint ---
+        // --- paint: the generative layer ---
         ctx.clearRect(0, 0, W, H);
-        // persistent crawled web first (under everything else)
         drawWeb();
-        // threads + highlights: latched element first, then up to 2 nearby
-        const accent = "#58ff9b";
+        const tip = spinneretTip();
         if (latched) {
             const a = closestPointOnRect(spider.x, spider.y, latched);
-            drawThread(spider.x, spider.y, a.x, a.y, accent);
-            drawHighlight(latched, accent);
-            drawLabel(latched.cx, latched.y, latched.kind, accent);
+            drawStrand(tip.x, tip.y, a.x, a.y, 0.85);
+            strokeBox(latched, true);
+            drawLabel(latched.cx, latched.y, nodeLabelLines(latched, true));
             setHud("latch", `on ${latched.kind} · ${latched.tag}`);
         }
         else if (nearest.length > 0) {
-            const show = nearest.slice(0, 3);
-            show.forEach((n, i) => {
-                const c = i === 0 ? "#7cc4ff" : "rgba(124,196,255,0.55)";
-                const a = closestPointOnRect(spider.x, spider.y, n.t);
-                if (i === 0) {
-                    drawThread(spider.x, spider.y, a.x, a.y, "#7cc4ff");
-                    drawHighlight(n.t, c);
-                }
-                if (i < 2)
-                    drawLabel(n.t.cx, n.t.y, n.t.kind, c);
-            });
+            const first = nearest[0].t;
+            const a = closestPointOnRect(spider.x, spider.y, first);
+            drawStrand(tip.x, tip.y, a.x, a.y, 0.4);
+            strokeBox(first, false);
+            drawLabel(first.cx, first.y, nodeLabelLines(first, false));
+            if (nearest.length > 1) {
+                const second = nearest[1].t;
+                drawLabel(second.cx, second.y, nodeLabelLines(second, false));
+            }
             setHud(dist > 30 ? "chase" : "idle");
         }
         else {
             setHud(dist > 30 ? "chase" : "idle");
         }
-        drawSpider(now, spider.speed > 30);
+        drawSpider(now, spider.speed > 25, latched !== null);
+        drawCursorReticle(now);
         requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
