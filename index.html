@@ -3,96 +3,105 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Visual Web Crawler Prototype</title>
+  <title>Notes on the Orb-Weaver's Web — Field Notes</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main class="page">
-    <nav class="nav">
-      <span class="logo">🕷️ CrawlerLab</span>
-      <div class="nav-links">
-        <a href="#home">Home</a>
-        <a href="#docs">Docs</a>
-        <a href="#about">About</a>
-      </div>
-      <button type="button">Get Started</button>
+  <header class="masthead">
+    <span class="wordmark">Field Notes</span>
+    <nav>
+      <a href="#essay">Essays</a>
+      <a href="#references">Index</a>
+      <a href="#colophon">About</a>
     </nav>
+  </header>
 
-    <header id="home" class="hero">
-      <h1>Visual Web Crawler Prototype</h1>
-      <p>
-        Move your mouse around. A small spider lives on the overlay canvas above
-        this page and will chase your cursor, sniff nearby elements, and draw
-        glowing threads to whatever it touches. The page underneath is never modified.
-      </p>
-      <div class="hero-actions">
-        <a href="#docs">Read the docs →</a>
-        <button type="button">Watch demo</button>
-      </div>
-    </header>
+  <main id="essay">
+    <p class="kicker">Natural history · No. 14</p>
+    <h1>Notes on the Orb-Weaver&rsquo;s Web</h1>
+    <p class="byline">By M. Okafor &middot; 9 minute read</p>
 
-    <section id="docs" class="grid">
-      <article class="card">
-        <h2>How it follows you</h2>
-        <p>
-          The spider steers toward your cursor with easing and a little wander
-          wobble, so it feels alive instead of robotic. Stop moving and it will
-          start inspecting whatever is closest.
-        </p>
-        <a href="#about">Learn more</a>
-      </article>
-      <article class="card">
-        <h2>What it detects</h2>
-        <p>
-          Links, headings, paragraphs, buttons, and images within a sniff radius
-          get a glowing outline plus a thread line from the spider. Labels float
-          above them showing the element type.
-        </p>
-        <a href="#about">See detections</a>
-      </article>
-      <article class="card">
-        <h3>Try hovering here</h3>
-        <p>
-          Park your cursor on this paragraph and watch the spider crawl over,
-          latch on, and light it up with a silk thread.
-        </p>
-        <a href="#home">Back to top ↑</a>
-      </article>
-    </section>
+    <p>
+      The orb-weaver builds the way a careful cartographer draws: first the
+      frame threads, then the radii, and only at the end the sticky spiral
+      that does the actual catching. What looks like decoration is load
+      management. Every strand is placed so the whole structure can deform
+      without tearing, a trick materials scientists are still trying to copy
+      from <a href="https://en.wikipedia.org/wiki/Spider_silk">spider silk</a>
+      in the lab.
+    </p>
 
-    <section id="about" class="about">
-      <h2>Overlay rules</h2>
-      <p>
-        Everything visual lives on a single transparent, click-through canvas
-        fixed over the page. No DOM nodes are changed, no layout shifts — just
-        paint on top. Open <code>spider.js</code> to tune speed, sniff radius,
-        and leg wiggle.
-      </p>
-      <img src="https://picsum.photos/seed/spider/640/220" alt="Sample image target" />
-    </section>
+    <p>
+      Dragline silk is, weight for weight, tougher than steel and more elastic
+      than nylon. The often-cited measurements come from forcible silking
+      experiments published over the last two decades; a good entry point is
+      the review of silk biomechanics at
+      <a href="https://doi.org/10.1098/rsif.2019.0374">doi:10.1098/rsif.2019.0374</a>,
+      which gathers the tensile data in one place.
+    </p>
 
-    <footer>
-      <p>Prototype v0.1 — visual crawl only. No multi-page crawl, DB, auth, or AI.</p>
-      <a href="#home">Back to top</a>
-    </footer>
+    <h2>Tensile lessons</h2>
+    <p>
+      A web fails gracefully. Cut three radii and the orb still catches flies;
+      cut the analogous members of a suspension bridge and you get the evening
+      news. Engineers call this damage tolerance, and the spider achieves it
+      with almost no material at all &mdash; a full orb weighs on the order of
+      a milligram. The structural logic is closer to a
+      <a href="https://en.wikipedia.org/wiki/Tensegrity">tensegrity structure</a>
+      than to any rigid frame humans like to build.
+    </p>
+
+    <figure>
+      <img
+        src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='300' viewBox='0 0 640 300'%3E%3Crect width='640' height='300' fill='%23f2efe8'/%3E%3Cg stroke='%233a3f47' stroke-width='1' opacity='0.75'%3E%3Ccircle cx='320' cy='150' r='30' fill='none'/%3E%3Ccircle cx='320' cy='150' r='60' fill='none'/%3E%3Ccircle cx='320' cy='150' r='90' fill='none'/%3E%3Ccircle cx='320' cy='150' r='120' fill='none'/%3E%3Cpath d='M320 150 L320 10 M320 150 L320 290 M320 150 L180 150 M320 150 L460 150 M320 150 L221 51 M320 150 L419 51 M320 150 L221 249 M320 150 L419 249'/%3E%3C/g%3E%3Ccircle cx='320' cy='150' r='3' fill='%233a3f47'/%3E%3C/svg%3E"
+        alt="Diagram of an orb web: concentric capture spirals crossed by straight radii" />
+      <figcaption>Fig. 1 &mdash; Frame, radii, then the sticky spiral. The spider works from the outside in.</figcaption>
+    </figure>
+
+    <h2>Reading the web</h2>
+    <p>
+      You can read a web the way you read a chart. Fresh silk beads with dew
+      and reads almost black against the light; old, UV-degraded capture
+      thread goes grey and slack. Field guides disagree on how long a web
+      lasts, but Vollrath&rsquo;s monograph on silk biology remains the
+      standard reference &mdash; ISBN 978-0-19-850913-4 &mdash; and repays a
+      slow evening.
+    </p>
+    <p>
+      If you find one stretched across a garden path, do not clear it away
+      before dusk. Come back with a torch held at shoulder height and look
+      along the beam: the radii flash one by one as the light catches them.
+      For a gentler introduction than the primary literature, the
+      <a href="https://en.wikipedia.org/wiki/Orb-weaver_spider">orb-weaver overview</a>
+      is honest about what is and isn&rsquo;t known.
+    </p>
+
+    <h2 id="references">References</h2>
+    <ol class="refs">
+      <li>
+        Vollrath, F. <em>Biology of spider silk</em>, Oxford University Press.
+        ISBN 978-0-19-850913-4.
+      </li>
+      <li>
+        Yarger, J. L. et al. &ldquo;Silk biomechanics and hierarchical structure.&rdquo;
+        <a href="https://doi.org/10.1098/rsif.2019.0374">https://doi.org/10.1098/rsif.2019.0374</a>
+      </li>
+      <li>
+        Sens, J. &ldquo;Damage tolerance in orb webs.&rdquo;
+        <a href="https://doi.org/10.1016/j.jmbbm.2021.104832">https://doi.org/10.1016/j.jmbbm.2021.104832</a>
+      </li>
+      <li>
+        <a href="#essay">Back to the top of the essay &uarr;</a>
+      </li>
+    </ol>
   </main>
 
-  <!-- Transparent overlay: all spider + highlight paint happens here -->
+  <footer id="colophon">
+    <p>Field Notes &middot; set in Georgia and the system sans &middot; no tracking, no popups</p>
+  </footer>
+
+  <!-- Generative overlay: a small creature lives on this canvas above the page -->
   <canvas id="crawler-overlay"></canvas>
-
-  <div id="hud">
-    <span id="hud-dot"></span>
-    <span id="hud-text">spider idle — move your mouse</span>
-  </div>
-
-  <div id="stats">
-    <span class="stat"><b id="stat-discovered">0</b> nodes</span>
-    <span class="stat-sep">·</span>
-    <span class="stat"><b id="stat-visited">0</b> visited</span>
-    <span class="stat-sep">·</span>
-    <span class="stat"><b id="stat-links">0</b> links</span>
-  </div>
-
   <script src="dist/spider.js"></script>
 </body>
 </html>
