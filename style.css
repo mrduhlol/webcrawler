@@ -3,89 +3,77 @@
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #faf9f6;
-  color: #1c1e22;
-  line-height: 1.7;
+  background: #06070c;
+  color: #c9cdd6;
+  line-height: 1.65;
 }
 
-.masthead {
-  max-width: 700px;
+.topbar {
+  max-width: 860px;
   margin: 0 auto;
-  padding: 22px 22px 14px;
+  padding: 16px 22px 12px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  border-bottom: 1px solid #e3e1da;
+  border-bottom: 1px solid #1b1e28;
 }
 
 .wordmark {
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
   font-size: 20px;
-  letter-spacing: 0.2px;
+  color: #eef0f5;
 }
 
-.masthead nav { display: flex; gap: 18px; font-size: 14px; }
-.masthead a { color: #5b6068; text-decoration: none; }
-.masthead a:hover { color: #1c1e22; text-decoration: underline; }
+.topbar nav { display: flex; gap: 18px; font-size: 14px; }
 
 main {
-  max-width: 700px;
+  max-width: 860px;
   margin: 0 auto;
-  padding: 34px 22px 60px;
-}
-
-.kicker {
-  font-size: 13px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #8a8e96;
-  margin: 0 0 8px;
+  padding: 26px 22px 60px;
 }
 
 h1 {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 38px;
   line-height: 1.2;
-  margin: 0 0 6px;
-  font-weight: 700;
+  margin: 0 0 2px;
+  color: #f2f4f8;
+  font-weight: 600;
 }
 
 h2 {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 24px;
-  margin: 34px 0 4px;
+  font-size: 25px;
+  margin: 34px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #1b1e28;
+  color: #eef0f5;
+  font-weight: 600;
 }
 
-.byline { color: #8a8e96; font-size: 14px; margin: 0 0 26px; }
+.tagline { color: #7d8390; font-size: 13px; margin: 0 0 20px; }
 
-p { margin: 0 0 18px; font-size: 17px; }
+p { margin: 0 0 14px; font-size: 15.5px; }
 
-a { color: #3d5a80; }
-a:visited { color: #6d597a; }
+a { color: #4f7cff; text-decoration: none; }
+a:visited { color: #8a63d2; }
+a:hover { text-decoration: underline; }
 
-figure { margin: 26px 0; }
-figure img {
-  width: 100%;
-  display: block;
-  border: 1px solid #e3e1da;
-  border-radius: 3px;
-}
-figcaption { font-size: 13px; color: #8a8e96; margin-top: 8px; }
-
-.refs { padding-left: 22px; font-size: 15px; color: #3a3e45; }
-.refs li { margin-bottom: 10px; }
+.refs { padding-left: 26px; font-size: 14.5px; color: #aab0bd; }
+.refs li { margin-bottom: 12px; }
+.refs em { color: #c9cdd6; }
 
 footer {
-  max-width: 700px;
+  max-width: 860px;
   margin: 0 auto;
-  padding: 18px 22px 40px;
-  border-top: 1px solid #e3e1da;
-  color: #8a8e96;
+  padding: 16px 22px 40px;
+  border-top: 1px solid #1b1e28;
+  color: #5b6170;
   font-size: 13px;
 }
 
-/* Transparent overlay: the creature lives here, clicks pass through */
+/* Neon overlay: the crawler lives here, clicks pass through */
 #crawler-overlay {
   position: fixed;
   inset: 0;
