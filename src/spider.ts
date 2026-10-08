@@ -391,10 +391,10 @@
         const lift = Math.max(0, Math.sin(t)) * (moving ? 3.2 : 1.2);
         // base fan angle per leg: front legs forward, rear legs swept back
         const fan = (side * (22 + i * 30) * Math.PI) / 180;
-        const rootX = 6 - i * 5;
-        const rootY = side * 4.5;
-        const femur = 24;
-        const tibia = 30;
+        const rootX = 9 - i * 7.5;
+        const rootY = side * 6.5;
+        const femur = 36;
+        const tibia = 44;
         const kx = rootX + Math.cos(fan) * femur + swing * 0.5;
         const ky = rootY + Math.sin(fan) * femur * 0.6 + lift * 0.4;
         const fx = kx + Math.cos(fan) * tibia + swing;
@@ -403,7 +403,7 @@
         ctx.shadowColor = BLUE;
         ctx.shadowBlur = 7;
         ctx.strokeStyle = "#5b6cff";
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(rootX, rootY);
         ctx.lineTo(kx, ky);
@@ -411,12 +411,12 @@
         ctx.stroke();
         // pink knee, cyan tip — the video's dotted joints
         ctx.shadowColor = MAGENTA;
-        ctx.shadowBlur = 7;
+        ctx.shadowBlur = 8;
         ctx.fillStyle = MAGENTA;
-        ctx.beginPath(); ctx.arc(kx, ky, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(kx, ky, 2.6, 0, Math.PI * 2); ctx.fill();
         ctx.shadowColor = CYAN;
         ctx.fillStyle = CYAN;
-        ctx.beginPath(); ctx.arc(fx, fy, 2.4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
     }
@@ -426,44 +426,44 @@
     ctx.shadowColor = CYAN;
     ctx.shadowBlur = glow;
     ctx.fillStyle = "#0e2233";
-    roundRectPath(-21, -6.5, 14, 13, 6.5);
+    roundRectPath(-31, -9.5, 20, 19, 9.5);
     ctx.fill();
     ctx.strokeStyle = CYAN;
-    ctx.lineWidth = 1.6;
-    roundRectPath(-21, -6.5, 14, 13, 6.5);
+    ctx.lineWidth = 1.8;
+    roundRectPath(-31, -9.5, 20, 19, 9.5);
     ctx.stroke();
     // abdomen segments
     ctx.save();
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 0.55;
     ctx.strokeStyle = CYAN;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.1;
     for (let s = 0; s < 3; s++) {
       ctx.beginPath();
-      ctx.moveTo(-18 + s * 3.6, -5.4);
-      ctx.quadraticCurveTo(-19.5 + s * 3.6, 0, -18 + s * 3.6, 5.4);
+      ctx.moveTo(-27 + s * 5.2, -8);
+      ctx.quadraticCurveTo(-29 + s * 5.2, 0, -27 + s * 5.2, 8);
       ctx.stroke();
     }
     ctx.restore();
     ctx.shadowColor = BLUE;
     ctx.fillStyle = "#141b4a";
-    roundRectPath(-7.5, -5, 11, 10, 5);
+    roundRectPath(-11.5, -7.5, 16, 15, 7.5);
     ctx.fill();
     ctx.strokeStyle = "#5b6cff";
-    ctx.lineWidth = 1.4;
-    roundRectPath(-7.5, -5, 11, 10, 5);
+    ctx.lineWidth = 1.6;
+    roundRectPath(-11.5, -7.5, 16, 15, 7.5);
     ctx.stroke();
     // bright head + amber core, like the video's glowing dot
     ctx.shadowColor = CYAN;
     ctx.shadowBlur = glow + 6;
     ctx.fillStyle = "#d9fbff";
     ctx.beginPath();
-    ctx.arc(8, 0, 4.4, 0, Math.PI * 2);
+    ctx.arc(11.5, 0, 6.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffb02e";
     ctx.beginPath();
-    ctx.arc(8, 0, 1.9, 0, Math.PI * 2);
+    ctx.arc(11.5, 0, 2.8, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
