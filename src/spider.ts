@@ -77,10 +77,10 @@
     pulse: Math.random() * 10,
   };
 
-  const SNIFF_RADIUS = 240;
-  const LATCH_RADIUS = 130;
-  const MAX_SPEED = 400;
-  const ACCEL = 1500;
+  const SNIFF_RADIUS = 260;
+  const LATCH_RADIUS = 140;
+  const MAX_SPEED = 520;
+  const ACCEL = 2200;
   const CURSOR_PULL = 0.18;
 
   // neon palette on near-black
@@ -371,75 +371,99 @@
 
   function drawSpider(time: number, moving: boolean, inspecting: boolean): void {
     spider.pulse += 0.016 * 5;
-    const glow = 10 + Math.sin(spider.pulse) * 4 + (inspecting ? 5 : 0);
-    const bob = Math.sin(time * 0.004) * 0.6;
+    const glow = 14 + Math.sin(spider.pulse) * 5 + (inspecting ? 6 : 0) + (moving ? 4 : 0);
+    const bob = Math.sin(time * 0.004) * 1.2;
 
     ctx.save();
     ctx.translate(spider.x, spider.y + bob * 0.3);
     ctx.rotate(spider.angle);
     ctx.lineCap = "round";
 
-    // 8 straight neon legs, knees + tips dotted
-    const stepFreq = 7 + spider.speed / 45;
-    const amp = moving ? 3 : 1;
+    // 8 long straight neon legs, fanned front-to-back, dotted joints.
+    // Front pair reaches far ahead, rear pair trails behind, like the video.
+    const stepFreq = 7 + spider.speed / 40;
     for (let side = -1; side <= 1; side += 2) {
       for (let i = 0; i < 4; i++) {
         const phase = (i % 2 === 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.9 : 0) + i * 0.5;
         const t = (time / 1000) * stepFreq + phase;
-        const swing = Math.cos(t) * (moving ? amp : 0.4);
-        const lift = Math.max(0, Math.sin(t)) * (moving ? 2 : 0.8);
-        const rootX = 4 - i * 3.2;
-        const rootY = side * 3;
-        const kx = rootX + 3 + swing * 0.5;
-        const ky = side * 8 + lift * 0.4;
-        const fx = kx + 2 + swing;
-        const fy = side * (14 + (i === 1 || i === 2 ? 2 : 0)) + lift;
+        const stride = moving ? 5 + Math.min(4, spider.speed / 90) : 0;
+        const swing = Math.cos(t) * stride;
+        const lift = Math.max(0, Math.sin(t)) * (moving ? 3.2 : 1.2);
+        // base fan angle per leg: front legs forward, rear legs swept back
+        const fan = (side * (22 + i * 30) * Math.PI) / 180;
+        const rootX = 6 - i * 5;
+        const rootY = side * 4.5;
+        const femur = 24;
+        const tibia = 30;
+        const kx = rootX + Math.cos(fan) * femur + swing * 0.5;
+        const ky = rootY + Math.sin(fan) * femur * 0.6 + lift * 0.4;
+        const fx = kx + Math.cos(fan) * tibia + swing;
+        const fy = ky + Math.sin(fan) * tibia * 0.6 + lift;
         ctx.save();
         ctx.shadowColor = BLUE;
-        ctx.shadowBlur = 6;
+        ctx.shadowBlur = 7;
         ctx.strokeStyle = "#5b6cff";
-        ctx.lineWidth = 1.3;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(rootX, rootY);
         ctx.lineTo(kx, ky);
         ctx.lineTo(fx, fy);
         ctx.stroke();
+        // pink knee, cyan tip — the video's dotted joints
+        ctx.shadowColor = MAGENTA;
+        ctx.shadowBlur = 7;
+        ctx.fillStyle = MAGENTA;
+        ctx.beginPath(); ctx.arc(kx, ky, 2, 0, Math.PI * 2); ctx.fill();
         ctx.shadowColor = CYAN;
         ctx.fillStyle = CYAN;
-        ctx.beginPath(); ctx.arc(kx, ky, 1.3, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(fx, fy, 1.6, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(fx, fy, 2.4, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
     }
 
-    // stacked glowing body: cyan abdomen, blue mid, bright head, amber core
+    // big stacked body: dark cyan-outlined abdomen, blue mid, bright head
     ctx.save();
     ctx.shadowColor = CYAN;
     ctx.shadowBlur = glow;
-    ctx.fillStyle = "#123a44";
-    roundRectPath(-11, -3.4, 8, 6.8, 3.4);
+    ctx.fillStyle = "#0e2233";
+    roundRectPath(-21, -6.5, 14, 13, 6.5);
     ctx.fill();
     ctx.strokeStyle = CYAN;
-    ctx.lineWidth = 1.4;
-    roundRectPath(-11, -3.4, 8, 6.8, 3.4);
+    ctx.lineWidth = 1.6;
+    roundRectPath(-21, -6.5, 14, 13, 6.5);
     ctx.stroke();
+    // abdomen segments
+    ctx.save();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = CYAN;
+    ctx.lineWidth = 1;
+    for (let s = 0; s < 3; s++) {
+      ctx.beginPath();
+      ctx.moveTo(-18 + s * 3.6, -5.4);
+      ctx.quadraticCurveTo(-19.5 + s * 3.6, 0, -18 + s * 3.6, 5.4);
+      ctx.stroke();
+    }
+    ctx.restore();
     ctx.shadowColor = BLUE;
-    ctx.fillStyle = "#1a2450";
-    roundRectPath(-3.4, -2.8, 6.4, 5.6, 2.8);
+    ctx.fillStyle = "#141b4a";
+    roundRectPath(-7.5, -5, 11, 10, 5);
     ctx.fill();
     ctx.strokeStyle = "#5b6cff";
-    roundRectPath(-3.4, -2.8, 6.4, 5.6, 2.8);
+    ctx.lineWidth = 1.4;
+    roundRectPath(-7.5, -5, 11, 10, 5);
     ctx.stroke();
+    // bright head + amber core, like the video's glowing dot
     ctx.shadowColor = CYAN;
-    ctx.shadowBlur = glow + 4;
+    ctx.shadowBlur = glow + 6;
     ctx.fillStyle = "#d9fbff";
     ctx.beginPath();
-    ctx.arc(5.4, 0, 2.6, 0, Math.PI * 2);
+    ctx.arc(8, 0, 4.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffb02e";
     ctx.beginPath();
-    ctx.arc(5.4, 0, 1.1, 0, Math.PI * 2);
+    ctx.arc(8, 0, 1.9, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
