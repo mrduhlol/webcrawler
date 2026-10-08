@@ -1,11 +1,8 @@
 "use strict";
-// Visual DOM crawler — overlay paint + single-page crawling engine.
+// Neon web crawler — overlay paint + single-page crawling engine.
 // The underlying page DOM is never modified (nodes keyed by element object).
 // Build with `npm run build` (emits dist/spider.js). Do not edit dist by hand.
 (() => {
-    function reqEl(id) {
-        return document.getElementById(id);
-    }
     const canvasEl = document.getElementById("crawler-overlay");
     if (!(canvasEl instanceof HTMLCanvasElement))
         throw new Error("missing #crawler-overlay");
@@ -14,12 +11,11 @@
     if (!rawCtx)
         throw new Error("no 2d context");
     const ctx = rawCtx;
-    // HUD / stats pills are gone from the page; keep refs optional so the
-    // engine still runs headless in tests.
-    const hudText = reqEl("hud-text");
-    const statDiscovered = reqEl("stat-discovered");
-    const statVisited = reqEl("stat-visited");
-    const statLinks = reqEl("stat-links");
+    // HUD / stats pills are not on the page; refs stay optional for tests.
+    const hudText = document.getElementById("hud-text");
+    const statDiscovered = document.getElementById("stat-discovered");
+    const statVisited = document.getElementById("stat-visited");
+    const statLinks = document.getElementById("stat-links");
     let W = 0;
     let H = 0;
     let DPR = 1;
@@ -35,7 +31,7 @@
     }
     window.addEventListener("resize", resize);
     resize();
-    // --- input: the cursor is a faint target the creature notices, nothing more ---
+    // --- input: plain cursor, faint tug on the creature ---
     const mouse = { x: W * 0.6, y: H * 0.4, active: false, lastMove: 0 };
     window.addEventListener("mousemove", (e) => {
         mouse.x = e.clientX;
@@ -52,32 +48,44 @@
             mouse.lastMove = performance.now();
         }
     }, { passive: true });
-    // --- spider state ---
     const spider = {
         x: W * 0.3, y: H * 0.3,
         vx: 0, vy: 0,
         angle: 0,
         speed: 0,
-        bobPhase: Math.random() * 10,
+        pulse: Math.random() * 10,
     };
-    const SNIFF_RADIUS = 220; // detection range (px), invisible
-    const LATCH_RADIUS = 130; // inspect range (px)
-    const MAX_SPEED = 380; // px/sec, modulated into scurries below
-    const ACCEL = 1500; // darts, then brakes hard
-    const CURSOR_PULL = 0.18; // faint tug toward a recent cursor
-    // ink-on-paper palette: monochrome, almost no glow
-    const INK = "35,39,46";
-    const STRAND = `rgba(${INK},0.30)`;
-    const WEB = `rgba(${INK},0.16)`;
-    const BOX = `rgba(${INK},0.55)`;
-    const DOT = `rgba(${INK},0.30)`;
-    const LABEL_FG = "#2a2e36";
-    const LABEL_BG = "rgba(250,249,246,0.92)";
-    const LABEL_EDGE = `rgba(${INK},0.38)`;
+    const SNIFF_RADIUS = 240;
+    const LATCH_RADIUS = 130;
+    const MAX_SPEED = 400;
+    const ACCEL = 1500;
+    const CURSOR_PULL = 0.18;
+    // neon palette on near-black
+    const CYAN = "#2ee6ff";
+    const BLUE = "#4f7cff";
+    const MAGENTA = "#ff2ea6";
+    const ORANGE = "#ff8a2a";
+    const GREEN = "#7cff6b";
+    const YELLOW = "#ffd23f";
+    const VIOLET = "#8a63ff";
+    const THREADS = [CYAN, MAGENTA, ORANGE, GREEN, BLUE, YELLOW];
+    function kindHue(tag) {
+        if (tag === "a")
+            return CYAN;
+        if (tag === "li")
+            return BLUE;
+        if (tag.charAt(0) === "h")
+            return MAGENTA;
+        if (tag === "p")
+            return "#3f8cff";
+        if (tag === "img" || tag === "button" || tag === "video")
+            return GREEN;
+        return VIOLET;
+    }
     // --- crawling engine: node graph for the current page ---
     const nodeByEl = new Map();
     const nodes = [];
-    const edges = []; // silk left behind between visited nodes
+    const edges = [];
     let nodeSeq = 0;
     let lastVisitedNode = null;
     let unvisitedCount = 0;
@@ -87,7 +95,7 @@
         const inputEl = el;
         const t = (htmlEl.innerText || imgEl.alt || inputEl.value || htmlEl.title || "")
             .trim().replace(/\s+/g, " ");
-        return t.slice(0, 80);
+        return t.slice(0, 120);
     }
     function elementUrl(el) {
         return el.getAttribute("href") || el.getAttribute("src");
@@ -97,6 +105,8 @@
             return "link <a>";
         if (tag === "button")
             return "button";
+        if (tag === "li")
+            return "cite <li>";
         if (tag.charAt(0) === "h")
             return "heading <" + tag + ">";
         if (tag === "p")
@@ -109,38 +119,36 @@
             return "frame <iframe>";
         return "ref <" + tag + ">";
     }
-    // Technical annotations: DOI / ISBN surfaced when the element carries one.
-    function findDoi(haystack) {
-        const m = haystack.match(/10\.\d{4,}\/[^\s"'<>\]\)]+/);
-        if (!m)
-            return null;
-        return m[0].replace(/[.,;]+$/, "");
-    }
-    function findIsbn(haystack) {
-        const m = haystack.match(/\bISBN(?:-1[03])?[\s:]*([0-9][0-9\s-]{8,}[0-9xX])/i);
-        if (!m)
-            return null;
-        const digits = m[1].replace(/[\s-]/g, "");
-        if (digits.length !== 10 && digits.length !== 13)
-            return null;
-        return digits;
+    // identifiers the video calls out: DOI, ISBN, OCLC, PMID, S2CID, ISSN
+    function nodeIdentifiers(n) {
+        const hay = (n.url ? n.url + " " : "") + n.text;
+        const out = [];
+        const doi = hay.match(/10\.\d{4,}\/[^\s"'<>\]\)]+/);
+        if (doi)
+            out.push({ label: "doi", value: doi[0].replace(/[.,;]+$/, ""), color: YELLOW });
+        const isbn = hay.match(/\bISBN(?:-1[03])?[\s:]*([0-9][0-9\s-]{8,}[0-9xX])/i);
+        if (isbn) {
+            const digits = isbn[1].replace(/[\s-]/g, "");
+            if (digits.length === 10 || digits.length === 13)
+                out.push({ label: "isbn", value: digits, color: CYAN });
+        }
+        const oclc = hay.match(/\bOCLC\s+(\d{4,})/i);
+        if (oclc)
+            out.push({ label: "oclc", value: oclc[1], color: ORANGE });
+        const pmid = hay.match(/\bPMID\s*:?\s*(\d{4,})/i);
+        if (pmid)
+            out.push({ label: "pmid", value: pmid[1], color: GREEN });
+        const s2cid = hay.match(/\bS2CID\s+(\d{4,})/i);
+        if (s2cid)
+            out.push({ label: "s2cid", value: s2cid[1], color: ORANGE });
+        const issn = hay.match(/\bISSN\s+(\d{4}-\d{3}[\dxX])/i);
+        if (issn)
+            out.push({ label: "issn", value: issn[1], color: GREEN });
+        return out.slice(0, 3);
     }
     function shortRef(url) {
         const s = url.replace(/^https?:\/\//, "").replace(/^www\./, "");
         return s.length > 30 ? s.slice(0, 29) + "…" : s;
-    }
-    function nodeLabelLines(n, full) {
-        const head = n.tag + (n.url ? " · " + shortRef(n.url) : "");
-        if (!full)
-            return [head];
-        const hay = (n.url ? n.url + " " : "") + n.text;
-        const doi = findDoi(hay);
-        if (doi)
-            return [head, "doi:" + doi];
-        const isbn = findIsbn(hay);
-        if (isbn)
-            return [head, "isbn:" + isbn];
-        return [head];
     }
     function readRect(n) {
         const r = n.el.getBoundingClientRect();
@@ -153,7 +161,7 @@
     }
     function scanDOM() {
         const scope = document.body ?? document;
-        const els = scope.querySelectorAll("a, button, h1, h2, h3, h4, p, img, video, iframe, [href], [src]");
+        const els = scope.querySelectorAll("a, button, h1, h2, h3, h4, p, img, video, iframe, li, [href], [src]");
         const seen = new Set();
         els.forEach((el) => {
             const r = el.getBoundingClientRect();
@@ -202,7 +210,7 @@
                 edges.splice(i, 1);
         }
     }
-    let latched = null; // element under inspection
+    let latched = null;
     let latchUntil = 0;
     function visit(node) {
         if (node.visited)
@@ -252,95 +260,103 @@
         const py = Math.max(n.y, Math.min(spider.y, n.y + n.h));
         return Math.hypot(spider.x - px, spider.y - py);
     }
-    // --- generative layer: hairlines, chips, the creature ---
-    function strokeBox(n, corners) {
-        const pad = 2;
-        const x = n.x - pad, y = n.y - pad, w = n.w + pad * 2, h = n.h + pad * 2;
+    // --- neon layer ---
+    function roundRectPath(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+    function neonBox(n, color, filled) {
+        const pad = 3;
         ctx.save();
-        ctx.strokeStyle = BOX;
-        ctx.lineWidth = 1;
-        if (!corners) {
-            ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+        ctx.shadowColor = color;
+        ctx.shadowBlur = filled ? 18 : 12;
+        if (filled) {
+            ctx.globalAlpha = 0.28;
+            ctx.fillStyle = color;
+            roundRectPath(n.x - pad, n.y - pad, n.w + pad * 2, n.h + pad * 2, 6);
+            ctx.fill();
+            ctx.globalAlpha = 1;
         }
-        else {
-            // small corner ticks instead of a full frame
-            const c = Math.min(7, w / 3, h / 3);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = filled ? 2.2 : 1.6;
+        roundRectPath(n.x - pad, n.y - pad, n.w + pad * 2, n.h + pad * 2, 6);
+        ctx.stroke();
+        ctx.restore();
+    }
+    // bright dots sitting on the identifier tokens inside an element
+    function identifierDots(n, ids) {
+        if (ids.length === 0)
+            return;
+        ctx.save();
+        ids.forEach((idn, k) => {
+            const fx = 0.14 + 0.36 * k + ((n.id + k) % 5) * 0.03;
+            const fy = n.cy + (((n.id + k) % 3) - 1) * n.h * 0.16;
+            const dx = Math.max(n.x + 2, Math.min(n.x + n.w * Math.min(0.95, fx), n.x + n.w - 2));
+            ctx.shadowColor = idn.color;
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = idn.color;
             ctx.beginPath();
-            ctx.moveTo(x, y + c);
-            ctx.lineTo(x, y);
-            ctx.lineTo(x + c, y);
-            ctx.moveTo(x + w - c, y);
-            ctx.lineTo(x + w, y);
-            ctx.lineTo(x + w, y + c);
-            ctx.moveTo(x + w, y + h - c);
-            ctx.lineTo(x + w, y + h);
-            ctx.lineTo(x + w - c, y + h);
-            ctx.moveTo(x + c, y + h);
-            ctx.lineTo(x, y + h);
-            ctx.lineTo(x, y + h - c);
-            ctx.stroke();
-        }
+            ctx.arc(dx, fy, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
         ctx.restore();
     }
-    function drawLabel(ax, ay, lines) {
-        ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
-        let w = 0;
-        for (const ln of lines)
-            w = Math.max(w, ctx.measureText(ln).width);
-        w += 10;
-        const h = lines.length * 11 + 7;
-        let lx = Math.max(4, Math.min(ax - w / 2, W - w - 4));
-        let ly = ay - h - 8;
-        let stemFromTop = false;
-        if (ly < 4) {
-            ly = ay + 8;
-            stemFromTop = true;
-        }
+    function tinyTag(x, y, text, color) {
         ctx.save();
-        ctx.fillStyle = LABEL_BG;
-        ctx.strokeStyle = LABEL_EDGE;
-        ctx.lineWidth = 0.75;
-        ctx.beginPath();
-        ctx.rect(lx + 0.5, ly + 0.5, w, h);
-        ctx.fill();
-        ctx.stroke();
-        // hairline stem tying the note to its element
-        ctx.strokeStyle = LABEL_EDGE;
-        ctx.beginPath();
-        if (stemFromTop) {
-            ctx.moveTo(ax, ly);
-            ctx.lineTo(ax, ay);
-        }
-        else {
-            ctx.moveTo(ax, ly + h);
-            ctx.lineTo(ax, ay);
-        }
-        ctx.stroke();
-        ctx.fillStyle = LABEL_FG;
-        lines.forEach((ln, i) => ctx.fillText(ln, lx + 5, ly + 12 + i * 11));
+        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
         ctx.restore();
     }
-    // a silk filament from the spinnerets to an anchor point, near-invisible
-    function drawStrand(x1, y1, x2, y2, alpha) {
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2 + 6;
+    // signature look: the identifier value on a rotated bright chip
+    function rotatedChip(cx, cy, text, color) {
+        ctx.save();
+        ctx.font = "bold 10px ui-monospace, Menlo, monospace";
+        const tw = ctx.measureText(text).width;
+        const w = tw + 12, h = 20;
+        ctx.translate(cx, cy);
+        ctx.rotate(-1.25);
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = color;
+        roundRectPath(-w / 2, -h / 2, w, h, 4);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#06070c";
+        ctx.fillText(text, -tw / 2, 3.5);
+        ctx.restore();
+    }
+    function thread(x1, y1, x2, y2, color, alpha) {
         ctx.save();
         ctx.globalAlpha = alpha;
-        ctx.strokeStyle = STRAND;
-        ctx.lineWidth = 0.6;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
-        ctx.quadraticCurveTo(mx, my, x2, y2);
+        ctx.lineTo(x2, y2);
         ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x2, y2, 2.4, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
     }
-    // silk left behind: the web the creature has already spun
     function drawWeb() {
         if (edges.length === 0)
             return;
         ctx.save();
-        ctx.strokeStyle = WEB;
-        ctx.lineWidth = 0.7;
+        ctx.strokeStyle = "rgba(90,100,255,0.22)";
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
         for (const e of edges) {
             ctx.moveTo(e.a.cx, e.a.cy);
@@ -349,120 +365,81 @@
         ctx.stroke();
         ctx.restore();
     }
-    function drawCursorReticle(now) {
-        if (!mouse.active || now - mouse.lastMove > 3000)
-            return;
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        ctx.strokeStyle = `rgba(${INK},1)`;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 3]);
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, 7, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = `rgba(${INK},1)`;
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, 1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-    function legPose(side, i, time, moving, inspecting, out) {
-        // alternating gait; probing taps when inspecting
-        const phase = (i % 2 === 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.9 : 0) + i * 0.55;
-        const freq = inspecting ? 2.6 : 9 + spider.speed / 40;
-        const t = time * freq + phase;
-        const stride = moving ? 2.6 + Math.min(2.4, spider.speed / 160) : 0;
-        const lift = inspecting ? Math.max(0, Math.sin(t)) * 1.1 : Math.max(0, Math.sin(t)) * (1.2 + stride * 0.5);
-        const swing = Math.cos(t) * stride;
-        const rootX = 3.5 - i * 2.6;
-        const rootY = side * 2.6;
-        const spread = 5.5 + (i === 1 || i === 2 ? 1.6 : 0);
-        out.kx = rootX + 1.5 + swing * 0.5;
-        out.ky = side * (spread * 0.55) + lift * 0.3;
-        out.fx = rootX - 1 + swing + (inspecting && i < 2 ? 1.5 : 0);
-        out.fy = side * spread + lift;
-    }
     function drawSpider(time, moving, inspecting) {
-        spider.bobPhase += 0.016 * (inspecting ? 2.4 : 1.2);
-        const bob = Math.sin(spider.bobPhase * 2.1) * (inspecting ? 0.5 : 0.3);
-        const pitch = Math.sin(time * 0.004 + 1) * 0.035;
+        spider.pulse += 0.016 * 5;
+        const glow = 10 + Math.sin(spider.pulse) * 4 + (inspecting ? 5 : 0);
+        const bob = Math.sin(time * 0.004) * 0.6;
         ctx.save();
-        ctx.translate(spider.x, spider.y + bob * 0.4);
-        ctx.rotate(spider.angle + pitch);
-        ctx.strokeStyle = `rgb(${INK})`;
-        ctx.fillStyle = `rgb(${INK})`;
-        ctx.lineWidth = 0.9;
+        ctx.translate(spider.x, spider.y + bob * 0.3);
+        ctx.rotate(spider.angle);
         ctx.lineCap = "round";
-        // legs first (behind the body), three segments each
-        const pose = { kx: 0, ky: 0, fx: 0, fy: 0 };
-        for (const side of [-1, 1]) {
+        // 8 straight neon legs, knees + tips dotted
+        const stepFreq = 7 + spider.speed / 45;
+        const amp = moving ? 3 : 1;
+        for (let side = -1; side <= 1; side += 2) {
             for (let i = 0; i < 4; i++) {
-                legPose(side, i, time / 1000, moving, inspecting, pose);
-                const rootX = 3.5 - i * 2.6;
-                const rootY = side * 2.6;
-                ctx.globalAlpha = 0.88;
+                const phase = (i % 2 === 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.9 : 0) + i * 0.5;
+                const t = (time / 1000) * stepFreq + phase;
+                const swing = Math.cos(t) * (moving ? amp : 0.4);
+                const lift = Math.max(0, Math.sin(t)) * (moving ? 2 : 0.8);
+                const rootX = 4 - i * 3.2;
+                const rootY = side * 3;
+                const kx = rootX + 3 + swing * 0.5;
+                const ky = side * 8 + lift * 0.4;
+                const fx = kx + 2 + swing;
+                const fy = side * (14 + (i === 1 || i === 2 ? 2 : 0)) + lift;
+                ctx.save();
+                ctx.shadowColor = BLUE;
+                ctx.shadowBlur = 6;
+                ctx.strokeStyle = "#5b6cff";
+                ctx.lineWidth = 1.3;
                 ctx.beginPath();
                 ctx.moveTo(rootX, rootY);
-                ctx.lineTo(pose.kx, pose.ky);
-                ctx.lineTo(pose.fx, pose.fy);
+                ctx.lineTo(kx, ky);
+                ctx.lineTo(fx, fy);
                 ctx.stroke();
+                ctx.shadowColor = CYAN;
+                ctx.fillStyle = CYAN;
+                ctx.beginPath();
+                ctx.arc(kx, ky, 1.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(fx, fy, 1.6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
             }
         }
-        ctx.globalAlpha = 1;
-        // abdomen with segments
-        ctx.beginPath();
-        ctx.ellipse(-4.5, bob * 0.3, 5.2, 3.7, 0, 0, Math.PI * 2);
-        ctx.fill();
+        // stacked glowing body: cyan abdomen, blue mid, bright head, amber core
         ctx.save();
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = LABEL_BG;
-        ctx.lineWidth = 0.6;
-        for (let s = 0; s < 3; s++) {
-            ctx.beginPath();
-            ctx.ellipse(-6 + s * 2.1, bob * 0.3, 1.1, 3.1, 0.25, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-        ctx.restore();
-        // pedicel + cephalothorax
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(-0.5, 0);
-        ctx.lineTo(1.2, 0);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.ellipse(3.4, 0, 3.1, 2.5, 0, 0, Math.PI * 2);
+        ctx.shadowColor = CYAN;
+        ctx.shadowBlur = glow;
+        ctx.fillStyle = "#123a44";
+        roundRectPath(-11, -3.4, 8, 6.8, 3.4);
         ctx.fill();
-        // pedipalps
-        ctx.lineWidth = 0.7;
-        ctx.beginPath();
-        ctx.moveTo(5.6, -1.4);
-        ctx.lineTo(7.4, -2.4);
-        ctx.moveTo(5.6, 1.4);
-        ctx.lineTo(7.4, 2.4);
+        ctx.strokeStyle = CYAN;
+        ctx.lineWidth = 1.4;
+        roundRectPath(-11, -3.4, 8, 6.8, 3.4);
         ctx.stroke();
-        // spinnerets at the rear (where silk comes from)
-        ctx.lineWidth = 0.7;
-        ctx.beginPath();
-        ctx.moveTo(-9.2, -1);
-        ctx.lineTo(-10.4, -1.8);
-        ctx.moveTo(-9.2, 1);
-        ctx.lineTo(-10.4, 1.8);
-        ctx.stroke();
-        // eyes: two plain dots, no glow
-        ctx.fillStyle = LABEL_BG;
-        ctx.beginPath();
-        ctx.arc(5.2, -0.9, 0.55, 0, Math.PI * 2);
+        ctx.shadowColor = BLUE;
+        ctx.fillStyle = "#1a2450";
+        roundRectPath(-3.4, -2.8, 6.4, 5.6, 2.8);
         ctx.fill();
+        ctx.strokeStyle = "#5b6cff";
+        roundRectPath(-3.4, -2.8, 6.4, 5.6, 2.8);
+        ctx.stroke();
+        ctx.shadowColor = CYAN;
+        ctx.shadowBlur = glow + 4;
+        ctx.fillStyle = "#d9fbff";
         ctx.beginPath();
-        ctx.arc(5.2, 0.9, 0.55, 0, Math.PI * 2);
+        ctx.arc(5.4, 0, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#ffb02e";
+        ctx.beginPath();
+        ctx.arc(5.4, 0, 1.1, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-    }
-    // spinneret tip in world space: silk originates here, not at the center
-    function spinneretTip() {
-        const c = Math.cos(spider.angle), s = Math.sin(spider.angle);
-        return { x: spider.x + c * -10.4, y: spider.y + s * -10.4 };
+        ctx.restore();
     }
     function setHud(mode, detail) {
         if (!hudText)
@@ -477,7 +454,7 @@
     function frame(now) {
         const dt = Math.min((now - last) / 1000, 0.05);
         last = now;
-        // tour: nearest unvisited node is the crawl target; patrol on cooldowns after
+        // tour: nearest unvisited node; patrol on cooldowns once covered
         let autoTarget = null;
         let best = Infinity;
         if (unvisitedCount > 0) {
@@ -528,14 +505,12 @@
         const dx = gx - spider.x;
         const dy = gy - spider.y;
         const dist = Math.hypot(dx, dy);
-        // scurry: speed breathes so travel reads as darts and drifts, not a cruise
         const scurry = Math.max(0.3, 0.62 + 0.28 * Math.sin(wt * 0.63) + 0.18 * Math.sin(wt * 1.71 + 2));
         const desired = Math.min(MAX_SPEED * scurry, dist * 4);
         const ax = dist > 1 ? (dx / dist) * ACCEL : 0;
         const ay = dist > 1 ? (dy / dist) * ACCEL : 0;
         spider.vx += ax * dt;
         spider.vy += ay * dt;
-        // faint sideways skitter while travelling
         if (!latched && dist > 4) {
             const px = -dy / dist, py = dx / dist;
             const sk = Math.sin(wt * 6.3 + 1.7) * 60 * dt;
@@ -543,7 +518,6 @@
             spider.vy += py * sk;
         }
         if (latched) {
-            // inspecting: come to a full stop on the element
             const damp = 1 - Math.min(1, 9 * dt);
             spider.vx *= damp;
             spider.vy *= damp;
@@ -559,8 +533,8 @@
         }
         spider.x += spider.vx * dt;
         spider.y += spider.vy * dt;
-        spider.x = Math.max(6, Math.min(W - 6, spider.x));
-        spider.y = Math.max(6, Math.min(H - 6, spider.y));
+        spider.x = Math.max(8, Math.min(W - 8, spider.x));
+        spider.y = Math.max(8, Math.min(H - 8, spider.y));
         spider.speed = Math.hypot(spider.vx, spider.vy);
         if (spider.speed > 10) {
             const targetAngle = Math.atan2(spider.vy, spider.vx);
@@ -588,7 +562,7 @@
                 n.d < LATCH_RADIUS);
             if (pick) {
                 latched = pick.t;
-                latchUntil = now + 1800 + Math.random() * 900; // inspect a while
+                latchUntil = now + 1800 + Math.random() * 900;
                 if (unvisitedCount === 0)
                     latched.cooldownUntil = now + 6000;
                 visit(latched);
@@ -598,34 +572,41 @@
         if (latched) {
             readRect(latched);
         }
-        // --- paint: the generative layer ---
+        // --- paint: the neon layer ---
         ctx.clearRect(0, 0, W, H);
         drawWeb();
-        const tip = spinneretTip();
+        // radiating threads to everything nearby, endpoint dots on the elements
+        const show = nearest.slice(0, 6);
+        show.forEach((n, i) => {
+            if (latched && n.t === latched)
+                return;
+            const color = THREADS[i % THREADS.length];
+            const a = closestPointOnRect(spider.x, spider.y, n.t);
+            thread(spider.x, spider.y, a.x, a.y, color, n.t.visited ? 0.35 : 0.75);
+        });
+        // neon boxes + identifier dots + tiny tags on the nearest few
+        show.slice(0, 3).forEach((n) => {
+            const hue = kindHue(n.t.tag);
+            const ids = nodeIdentifiers(n.t);
+            neonBox(n.t, hue, false);
+            identifierDots(n.t, ids);
+            const head = n.t.tag + (n.t.url ? " · " + shortRef(n.t.url) : "");
+            tinyTag(n.t.x, Math.max(10, n.t.y - 6), head, hue);
+        });
         if (latched) {
-            const a = closestPointOnRect(spider.x, spider.y, latched);
-            drawStrand(tip.x, tip.y, a.x, a.y, 0.85);
-            strokeBox(latched, true);
-            drawLabel(latched.cx, latched.y, nodeLabelLines(latched, true));
+            const hue = MAGENTA;
+            const ids = nodeIdentifiers(latched);
+            neonBox(latched, hue, true);
+            identifierDots(latched, ids);
+            const chipText = ids.length > 0 ? `${ids[0].label}:${ids[0].value}` : latched.kind;
+            rotatedChip(latched.cx, latched.y - 26, chipText.slice(0, 34), ids.length > 0 ? ids[0].color : CYAN);
+            tinyTag(latched.x, Math.max(10, latched.y - 6), latched.kind, hue);
             setHud("latch", `on ${latched.kind} · ${latched.tag}`);
-        }
-        else if (nearest.length > 0) {
-            const first = nearest[0].t;
-            const a = closestPointOnRect(spider.x, spider.y, first);
-            drawStrand(tip.x, tip.y, a.x, a.y, 0.4);
-            strokeBox(first, false);
-            drawLabel(first.cx, first.y, nodeLabelLines(first, false));
-            if (nearest.length > 1) {
-                const second = nearest[1].t;
-                drawLabel(second.cx, second.y, nodeLabelLines(second, false));
-            }
-            setHud(dist > 30 ? "chase" : "idle");
         }
         else {
             setHud(dist > 30 ? "chase" : "idle");
         }
         drawSpider(now, spider.speed > 25, latched !== null);
-        drawCursorReticle(now);
         requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
